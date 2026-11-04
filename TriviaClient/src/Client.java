@@ -1,53 +1,48 @@
 
 import java.io.*;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 public class Client {
 
     public static void main(String[] args) throws IOException {
 
-        Socket socket = new Socket("localhost", 12000);
+        try (Socket socket = new Socket("localhost", 12000)) {
 
-        BufferedReader in = new BufferedReader(
-            new InputStreamReader(socket.getInputStream())
-        );
+            BufferedReader keyboard = new BufferedReader(
+                new InputStreamReader(System.in)
+            );
 
-        PrintWriter out = new PrintWriter(
-            socket.getOutputStream(), true
-        );
+            PrintWriter out = new PrintWriter(
+                new OutputStreamWriter(
+                    socket.getOutputStream(),
+                    StandardCharsets.UTF_8), true
+            );
 
-        BufferedReader keyboard = new BufferedReader(
-            new InputStreamReader(System.in)
-        );
+            InputStream in = socket.getInputStream();
 
-        System.out.println("Connected to server!");
+            System.out.println("Connected to server!");
 
-        String message;
+            while (true) {
 
-        while (true) {
+                System.out.print("> ");
 
-            System.out.print("> ");
-            message = keyboard.readLine();
+                String request = keyboard.readLine();
 
-            if (message == null) {
-                break;
-            }
+                if (request == null) {
+                    break;
+                }
 
-            out.println(message);
+                out.println(request);
 
-            String response = in.readLine();
+                String response = Protocol.readResponse(in);
 
-            if (response == null) {
-                break;
-            }
+                System.out.println(response);
 
-            System.out.println(response);
-
-            if (message.equals("/exit")) {
-                break;
+                if (request.equals("/exit")) {
+                    break;
+                }
             }
         }
-
-        socket.close();
     }
 }
