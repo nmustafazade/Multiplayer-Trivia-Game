@@ -1,3 +1,4 @@
+package trivia.server;
 
 import java.io.*;
 import java.net.Socket;
