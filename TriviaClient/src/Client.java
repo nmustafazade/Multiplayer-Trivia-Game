@@ -16,33 +16,57 @@ public class Client {
             PrintWriter out = new PrintWriter(
                 new OutputStreamWriter(
                     socket.getOutputStream(),
-                    StandardCharsets.UTF_8), true
+                    StandardCharsets.UTF_8),
+                true
             );
 
-            InputStream in = socket.getInputStream();
+            // Thread 1: Read user input and send commands.
+            Thread inputThread = new Thread(() -> {
+
+                try {
+                    String command;
+
+                    while ((command = keyboard.readLine()) != null) {
+
+                        out.println(command);
+
+                        if (out.checkError()) {
+                            System.out.println("Failed to send command.");
+                            break;
+                        }
+
+                        if (command.equals("/exit")) {
+                            break;
+                        }
+                    }
+
+                } catch (IOException e) {
+                    System.out.println("Input error: "
+                            + e.getMessage());
+                }
+
+            });
+
+            // Thread 2: Receive server messages.
+            ServerListener listener = new ServerListener(
+                socket.getInputStream()
+            );
+
+            Thread listenerThread = new Thread(listener);
+
+            // Keyboard input should not prevent shutdown.
+            inputThread.setDaemon(true);
+
+            inputThread.start();
+            listenerThread.start();
 
             System.out.println("Connected to server!");
+            System.out.print("> ");
 
-            while (true) {
-
-                System.out.print("> ");
-
-                String request = keyboard.readLine();
-
-                if (request == null) {
-                    break;
-                }
-
-                out.println(request);
-
-                String response = Protocol.readResponse(in);
-
-                System.out.println(response);
-
-                if (request.equals("/exit")) {
-                    break;
-                }
-            }
+            // Wait until the server connection ends.
+            listenerThread.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }
