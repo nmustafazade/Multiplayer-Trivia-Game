@@ -1,23 +1,203 @@
+
 package trivia.server;
 
 import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ClientHandler implements Runnable {
 
     private final Socket socket;
+    private final ChallengeManager manager;
 
-    public ClientHandler(Socket socket) {
+    public ClientHandler(Socket socket,
+                         ChallengeManager manager) {
         this.socket = socket;
+        this.manager = manager;
     }
 
-    // Synchronize all writes to this client's socket.
     public synchronized void send(
-            int code, String message, String body) throws IOException {
+            int code, String message, String body)
+            throws IOException {
 
         Protocol.sendResponse(
-            socket.getOutputStream(), code, message, body);
+                socket.getOutputStream(),
+                code, message, body);
+    }
+
+    private List<String> tokenize(String input) {
+
+        List<String> tokens = new ArrayList<>();
+
+        Pattern pattern = Pattern.compile(
+                "\"([^\"]*)\"|([^\\s\"]+)");
+
+        Matcher matcher = pattern.matcher(input);
+
+        int position = 0;
+
+        while (matcher.find()) {
+
+            if (!input.substring(position, matcher.start())
+                    .trim().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Invalid quotation marks");
+            }
+
+            tokens.add(matcher.group(1) != null
+                    ? matcher.group(1)
+                    : matcher.group(2));
+
+            position = matcher.end();
+        }
+
+        if (!input.substring(position).trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Invalid quotation marks");
+        }
+
+        return tokens;
+    }
+
+    private Map<String, String> parseOptions(
+            List<String> tokens,
+            Set<String> allowed) {
+
+        Map<String, String> options = new HashMap<>();
+
+        if (tokens.size() % 2 == 0) {
+            throw new IllegalArgumentException(
+                    "Missing option or value");
+        }
+
+        for (int i = 1; i < tokens.size(); i += 2) {
+
+            String key = tokens.get(i);
+            String value = tokens.get(i + 1);
+
+            if (!allowed.contains(key)
+                    || value.isBlank()
+                    || options.containsKey(key)) {
+                throw new IllegalArgumentException(
+                        "Invalid or duplicate option: " + key);
+            }
+
+            options.put(key, value);
+        }
+
+        return options;
+    }
+
+    private void handleCreate(List<String> tokens)
+            throws IOException, InterruptedException,
+                   ExecutionException {
+
+        Map<String, String> options = parseOptions(
+                tokens,
+                Set.of("-category", "-difficulty", "-count"));
+
+        if (options.size() != 3) {
+            throw new IllegalArgumentException(
+                    "Create requires category, difficulty and count");
+        }
+
+        String category = options.get("-category");
+        String difficulty = options.get("-difficulty");
+
+        int count;
+
+        try {
+            count = Integer.parseInt(options.get("-count"));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Count must be an integer");
+        }
+
+        Challenge challenge = manager.createChallenge(
+                category, difficulty, count, this);
+
+        send(200, "OK",
+                "Challenge created successfully. ID: "
+                + challenge.getId()
+                + "\nWaiting for another player...");
+    }
+
+    private void handleList(List<String> tokens)
+            throws IOException {
+
+        Map<String, String> options = parseOptions(
+                tokens,
+                Set.of("-category", "-difficulty"));
+
+        String category = options.get("-category");
+        String difficulty = options.get("-difficulty");
+
+        if (difficulty != null
+                && !difficulty.equalsIgnoreCase("Easy")
+                && !difficulty.equalsIgnoreCase("Medium")
+                && !difficulty.equalsIgnoreCase("Hard")) {
+
+            throw new IllegalArgumentException(
+                    "Invalid difficulty");
+        }
+
+        List<Challenge> challenges =
+                manager.listChallenges(category, difficulty);
+
+        if (challenges.isEmpty()) {
+            send(200, "OK", "No challenges found");
+            return;
+        }
+
+        StringBuilder body = new StringBuilder();
+
+        for (Challenge challenge : challenges) {
+            body.append(challenge.getSummary())
+                    .append("\n");
+        }
+
+        send(200, "OK", body.toString().trim());
+    }
+
+    private void handleRequest(String request)
+            throws IOException, InterruptedException,
+                   ExecutionException {
+
+        List<String> tokens = tokenize(request.trim());
+
+        if (tokens.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Empty command");
+        }
+
+        String command = tokens.get(0);
+
+        switch (command) {
+
+            case "/create":
+                handleCreate(tokens);
+                break;
+
+            case "/list":
+                handleList(tokens);
+                break;
+
+            case "/exit":
+                if (tokens.size() != 1) {
+                    throw new IllegalArgumentException(
+                            "Exit takes no arguments");
+                }
+                send(200, "OK", "Goodbye!");
+                break;
+
+            default:
+                throw new IllegalArgumentException(
+                        "Unknown command");
+        }
     }
 
     @Override
@@ -27,10 +207,9 @@ public class ClientHandler implements Runnable {
             socket.setSoTimeout(90000);
 
             BufferedReader in = new BufferedReader(
-                new InputStreamReader(
-                    socket.getInputStream(),
-                    StandardCharsets.UTF_8)
-            );
+                    new InputStreamReader(
+                            socket.getInputStream(),
+                            StandardCharsets.UTF_8));
 
             String request;
 
@@ -38,31 +217,46 @@ public class ClientHandler implements Runnable {
 
                 System.out.println("Client: " + request);
 
-                switch (request) {
+                try {
+                    handleRequest(request);
 
-                    case "/list":
-                        send(200, "OK", "No challenges found");
+                    if (request.trim().equals("/exit")) {
                         break;
+                    }
 
-                    case "/exit":
-                        send(200, "OK", "Goodbye!");
-                        return;
+                } catch (IllegalArgumentException e) {
+                    send(400, "BAD_REQUEST", e.getMessage());
 
-                    default:
+                } catch (ExecutionException e) {
+
+                    Throwable cause = e.getCause();
+
+                    if (cause instanceof IllegalArgumentException) {
                         send(400, "BAD_REQUEST",
-                            "Unknown command");
-                        break;
+                                cause.getMessage());
+                    } else if (cause instanceof IOException
+                            || cause instanceof InterruptedException) {
+                        send(503, "SERVICE_UNAVAILABLE",
+                                "Could not retrieve trivia questions");
+                    } else {
+                        send(500, "INTERNAL_SERVER_ERROR",
+                                "Challenge creation failed");
+                    }
                 }
             }
 
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+
         } catch (IOException e) {
             System.out.println(
-                "Client disconnected: " + e.getMessage());
+                    "Client disconnected: " + e.getMessage());
+
         } finally {
             try {
                 socket.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                System.out.println(e.getMessage());
             }
         }
     }
