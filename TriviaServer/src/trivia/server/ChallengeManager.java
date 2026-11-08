@@ -100,6 +100,10 @@ public class ChallengeManager implements Runnable {
     public Challenge getChallenge(int id) {
         return challenges.get(id);
     }
+    
+    public void removeChallenge(int id) {
+        challenges.remove(id);
+    }
 
     @Override
     public void run() {
@@ -126,7 +130,10 @@ public class ChallengeManager implements Runnable {
                             request.category,
                             request.difficulty,
                             questions,
-                            request.creator);
+                            request.creator,
+                            this);
+
+                    request.creator.setCurrentChallenge(challenge);
 
                     Thread thread = new Thread(
                             challenge, "Challenge-" + id);

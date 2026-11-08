@@ -13,6 +13,7 @@ public class ClientHandler implements Runnable {
 
     private final Socket socket;
     private final ChallengeManager manager;
+    private volatile Challenge currentChallenge;
 
     public ClientHandler(Socket socket,
                          ChallengeManager manager) {
@@ -28,6 +29,19 @@ public class ClientHandler implements Runnable {
                 socket.getOutputStream(),
                 code, message, body);
     }
+    
+
+	public void setCurrentChallenge(Challenge challenge) {
+	    this.currentChallenge = challenge;
+	}
+	
+	public void clearCurrentChallenge(Challenge challenge) {
+	
+	    if (this.currentChallenge == challenge) {
+	        this.currentChallenge = null;
+	    }
+	}
+
 
     private List<String> tokenize(String input) {
 
@@ -95,6 +109,11 @@ public class ClientHandler implements Runnable {
     private void handleCreate(List<String> tokens)
             throws IOException, InterruptedException,
                    ExecutionException {
+    	
+    	if (currentChallenge != null) {
+    	    throw new IllegalArgumentException(
+    	            "Leave your current challenge first");
+    	}
 
         Map<String, String> options = parseOptions(
                 tokens,
@@ -176,29 +195,134 @@ public class ClientHandler implements Runnable {
 
         String command = tokens.get(0);
 
-        switch (command) {
 
-            case "/create":
-                handleCreate(tokens);
-                break;
+		switch (command) {
+		
+		    case "/create":
+		        handleCreate(tokens);
+		        break;
+		
+		    case "/list":
+		        handleList(tokens);
+		        break;
+		
+		    case "/join":
+		        handleJoin(tokens);
+		        break;
+		
+		    case "/leave":
+		        handleLeave(tokens);
+		        break;
+		
+		    case "/exit":
+		        if (tokens.size() != 1) {
+		            throw new IllegalArgumentException(
+		                    "Exit takes no arguments");
+		        }
+		
+		        send(200, "OK", "Goodbye!");
+		        break;
+		
+		    default:
+		        throw new IllegalArgumentException(
+		                "Unknown command");
+		}
 
-            case "/list":
-                handleList(tokens);
-                break;
-
-            case "/exit":
-                if (tokens.size() != 1) {
-                    throw new IllegalArgumentException(
-                            "Exit takes no arguments");
-                }
-                send(200, "OK", "Goodbye!");
-                break;
-
-            default:
-                throw new IllegalArgumentException(
-                        "Unknown command");
-        }
     }
+    
+
+	private void handleJoin(List<String> tokens)
+	        throws IOException, InterruptedException,
+	               ExecutionException {
+	
+	    Map<String, String> options = parseOptions(
+	            tokens, Set.of("-id"));
+	
+	    if (options.size() != 1) {
+	        throw new IllegalArgumentException(
+	                "Join requires a challenge ID");
+	    }
+	
+	    if (currentChallenge != null) {
+	        throw new IllegalArgumentException(
+	                "You are already in a challenge");
+	    }
+	
+	    int id;
+	
+	    try {
+	        id = Integer.parseInt(options.get("-id"));
+	    } catch (NumberFormatException e) {
+	        throw new IllegalArgumentException(
+	                "Invalid challenge ID");
+	    }
+	
+	    Challenge challenge = manager.getChallenge(id);
+	
+	    if (challenge == null) {
+	        send(404, "NOT_FOUND", "Challenge not found");
+	        return;
+	    }
+	
+	    boolean joined = challenge.join(this);
+	
+	    if (!joined) {
+	        send(400, "BAD_REQUEST",
+	                "Challenge already started or is full");
+	        return;
+	    }
+	
+	    send(200, "OK",
+	            "Successfully joined challenge " + id);
+	}
+	
+
+	private void handleLeave(List<String> tokens)
+	        throws IOException, InterruptedException,
+	               ExecutionException {
+	
+	    Map<String, String> options = parseOptions(
+	            tokens, Set.of("-id"));
+	
+	    if (options.size() != 1) {
+	        throw new IllegalArgumentException(
+	                "Leave requires a challenge ID");
+	    }
+	
+	    int id;
+	
+	    try {
+	        id = Integer.parseInt(options.get("-id"));
+	    } catch (NumberFormatException e) {
+	        throw new IllegalArgumentException(
+	                "Invalid challenge ID");
+	    }
+	
+	    Challenge challenge = manager.getChallenge(id);
+	
+	    if (challenge == null) {
+	        send(404, "NOT_FOUND", "Challenge not found");
+	        return;
+	    }
+	
+	    if (currentChallenge != challenge) {
+	        send(400, "BAD_REQUEST",
+	                "You are not in this challenge");
+	        return;
+	    }
+	
+	    boolean left = challenge.leave(this);
+	
+	    if (left) {
+	        send(200, "OK",
+	                "Successfully left challenge " + id);
+	    } else {
+	        send(400, "BAD_REQUEST",
+	                "Could not leave challenge");
+	    }
+	}
+
+
 
     @Override
     public void run() {
@@ -253,6 +377,22 @@ public class ClientHandler implements Runnable {
                     "Client disconnected: " + e.getMessage());
 
         } finally {
+
+            // Leave the challenge if the client disconnects.
+            Challenge joined = currentChallenge;
+
+            if (joined != null) {
+                try {
+                    joined.leave(this);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    System.out.println(
+                            "Could not clean up challenge: "
+                            + e.getMessage());
+                }
+            }
+
             try {
                 socket.close();
             } catch (IOException e) {
