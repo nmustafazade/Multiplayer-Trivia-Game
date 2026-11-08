@@ -222,6 +222,10 @@ public class ClientHandler implements Runnable {
 		
 		        send(200, "OK", "Goodbye!");
 		        break;
+		    
+		    case "/answer":
+		        handleAnswer(tokens);
+		        break;
 		
 		    default:
 		        throw new IllegalArgumentException(
@@ -319,6 +323,70 @@ public class ClientHandler implements Runnable {
 	    } else {
 	        send(400, "BAD_REQUEST",
 	                "Could not leave challenge");
+	    }
+	}
+	
+	private void handleAnswer(List<String> tokens)
+	        throws IOException, InterruptedException,
+	               ExecutionException {
+
+	    Map<String, String> options = parseOptions(
+	            tokens,
+	            Set.of("-id", "-answer"));
+
+	    if (options.size() != 2) {
+	        throw new IllegalArgumentException(
+	                "Answer requires -id and -answer");
+	    }
+
+	    int id;
+
+	    try {
+	        id = Integer.parseInt(options.get("-id"));
+	    } catch (NumberFormatException e) {
+	        throw new IllegalArgumentException(
+	                "Invalid challenge ID");
+	    }
+
+	    String choice = options.get("-answer").toUpperCase();
+
+	    if (!choice.matches("[A-D]")) {
+	        throw new IllegalArgumentException(
+	                "Answer must be A, B, C, or D");
+	    }
+
+	    Challenge challenge = currentChallenge;
+
+	    if (challenge == null || challenge.getId() != id) {
+	        send(400, "BAD_REQUEST",
+	                "You are not in this challenge");
+	        return;
+	    }
+
+	    Challenge.Result result =
+	            challenge.answer(this, choice.charAt(0));
+
+	    switch (result) {
+
+	        case ACCEPTED:
+	            send(200, "OK",
+	                    "Answer received: " + choice);
+	            break;
+
+	        case DUPLICATE:
+	            send(400, "BAD_REQUEST",
+	                    "You already answered this question");
+	            break;
+
+	        case TOO_LATE:
+	            send(400, "BAD_REQUEST",
+	                    "Question deadline has passed");
+	            break;
+
+	        default:
+	            send(400, "BAD_REQUEST",
+	                    "Answer cannot be accepted");
+	            break;
 	    }
 	}
 
