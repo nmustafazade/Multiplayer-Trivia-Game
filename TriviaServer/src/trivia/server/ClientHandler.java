@@ -8,6 +8,7 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.net.SocketTimeoutException;
 
 public class ClientHandler implements Runnable {
 
@@ -437,26 +438,35 @@ public class ClientHandler implements Runnable {
                 }
             }
 
-        } catch (InterruptedException e) {
+        }  catch (InterruptedException e) {
+
             Thread.currentThread().interrupt();
 
-        } catch (IOException e) {
+        } catch (SocketTimeoutException e) {
+
             System.out.println(
-                    "Client disconnected: " + e.getMessage());
+                    "Client disconnected due to 90-second inactivity.");
+
+        } catch (IOException e) {
+
+            System.out.println(
+                    "Client connection error: " + e.getMessage());
 
         } finally {
 
-            // Leave the challenge if the client disconnects.
             Challenge joined = currentChallenge;
 
             if (joined != null) {
+
                 try {
                     joined.leave(this);
+
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+
                 } catch (ExecutionException e) {
                     System.out.println(
-                            "Could not clean up challenge: "
+                            "Challenge cleanup error: "
                             + e.getMessage());
                 }
             }

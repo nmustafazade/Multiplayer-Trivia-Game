@@ -310,7 +310,7 @@ public class Challenge implements Runnable {
                         remaining, TimeUnit.NANOSECONDS);
 
                 if (command != null) {
-                    process(command);
+                	processSafely(command);
                 }
             }
 
@@ -412,35 +412,62 @@ public class Challenge implements Runnable {
         System.out.println(
                 "Challenge " + id + " finished.");
     }
-
-    @Override
-    public void run() {
-
-        System.out.println(
-                "Challenge " + id + " thread started.");
+    
+    private void processSafely(Command command) {
 
         try {
-            while (state != State.FINISHED) {
+        	process(command);
 
-                if (state == State.WAITING) {
+        } catch (RuntimeException e) {
 
-                    Command command = requestQueue.take();
-                    process(command);
+            // Unblock the client waiting for this command.
+            command.result.completeExceptionally(e);
 
-                } else if (state == State.RUNNING) {
-
-                    playGame();
-                }
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-
-            finishChallenge("Challenge interrupted.");
-
-        } finally {
-            System.out.println(
-                    "Challenge " + id + " thread stopped.");
+            throw e;
         }
     }
+
+
+	@Override
+	public void run() {
+	
+	    System.out.println(
+	            "Challenge " + id + " thread started.");
+	
+	    try {
+	
+	        while (state != State.FINISHED) {
+	
+	            if (state == State.WAITING) {
+	
+	                Command command = requestQueue.take();
+	                processSafely(command);
+	
+	            } else if (state == State.RUNNING) {
+	
+	                playGame();
+	            }
+	        }
+	
+	    } catch (InterruptedException e) {
+	
+	        Thread.currentThread().interrupt();
+	
+	        finishChallenge("Challenge interrupted.");
+	
+	    } catch (RuntimeException e) {
+	
+	        System.out.println(
+	                "Unexpected error in challenge "
+	                + id + ": " + e.getMessage());
+	
+	        finishChallenge("An internal error occurred.");
+	
+	    } finally {
+	
+	        System.out.println(
+	                "Challenge " + id + " thread stopped.");
+	    }
+	}
+
 }
