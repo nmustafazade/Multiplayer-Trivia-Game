@@ -49,16 +49,16 @@ The source layout above assumes the Java package names `trivia.server` and `triv
 
 ## Client Commands
 
-| Command | Description |
-| --- | --- |
-| `/list` | List available (waiting) challenges. |
-| `/list -difficulty "Medium"` | Filter challenges by difficulty. |
-| `/list -category "Science: Computers"` | Filter challenges by category. |
+| Command                                                                | Description                                                              |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `/list`                                                                | List available (waiting) challenges.                                     |
+| `/list -difficulty "Medium"`                                           | Filter challenges by difficulty.                                         |
+| `/list -category "Science: Computers"`                                 | Filter challenges by category.                                           |
 | `/create -category "Science: Computers" -difficulty "Medium" -count 5` | Create a challenge with five questions. The creator joins automatically. |
-| `/join -id 101` | Join an existing waiting challenge. |
-| `/answer -id 101 -answer B` | Answer the current question with choice A, B, C, or D. |
-| `/leave -id 101` | Leave a challenge. |
-| `/exit` | Disconnect from the server. |
+| `/join -id 101`                                                        | Join an existing waiting challenge.                                      |
+| `/answer -id 101 -answer B`                                            | Answer the current question with choice A, B, C, or D.                   |
+| `/leave -id 101`                                                       | Leave a challenge.                                                       |
+| `/exit`                                                                | Disconnect from the server.                                              |
 
 Use an actual challenge ID returned by `/create` or shown by `/list` instead of `101` when necessary. Categories must match an OpenTDB category name; difficulty can be `Easy`, `Medium`, or `Hard`.
 
@@ -103,4 +103,3 @@ The server validates commands, challenge IDs, categories, question counts, and a
 - A challenge begins when **exactly two players** have joined.
 - The server retrieves questions at challenge creation time; gameplay does not require additional API calls.
 - To test concurrent sessions, launch four clients and create two separate challenges.
-- This README describes the project implementation developed in the COMP416 assignment. Verify the final code and test results before submission.
